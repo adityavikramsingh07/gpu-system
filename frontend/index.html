@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GPU Supply Chain MAS</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+
+<div id="app">
+  <!-- SIDEBAR -->
+  <nav id="sidebar">
+    <div class="logo-area">
+      <div class="logo-hex"></div>
+      <div>
+        <div class="logo-name">GPU Supply Chain MAS</div>
+        <div class="logo-sub">Command Center</div>
+      </div>
+    </div>
+    
+    <div class="nav-menu">
+      <div class="nav-item active" data-page="overview">
+        <span class="nav-icon">📊</span> Overview
+      </div>
+      <div class="nav-item" data-page="agents">
+        <span class="nav-icon">🤖</span> Agents & Workers
+      </div>
+      <div class="nav-item" data-page="terminal">
+        <span class="nav-icon">🖥️</span> Query Terminal
+      </div>
+      <div class="nav-item" data-page="telemetry">
+        <span class="nav-icon">📡</span> Telemetry Hub
+      </div>
+    </div>
+
+    <div class="status-badge">
+      <div class="pulse-dot"></div> System Operational
+    </div>
+  </nav>
+
+  <!-- MAIN CONTENT -->
+  <main id="main-content">
+    
+    <!-- PAGE 1: OVERVIEW -->
+    <div id="page-overview" class="page active">
+      <canvas id="bg-canvas"></canvas>
+      <div class="page-header" style="background: transparent; border: none;">
+        <div>
+          <div class="page-title">Neural Architecture Overview</div>
+          <div class="page-subtitle">Live graph & system health</div>
+        </div>
+      </div>
+      <div class="page-content" style="pointer-events: none;">
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <div class="m-val" id="m-sess" style="color:var(--gia)">3</div>
+            <div class="m-lbl">Active Sessions</div>
+          </div>
+          <div class="metric-card">
+            <div class="m-val" id="m-tick" style="color:var(--tha)">7</div>
+            <div class="m-lbl">THA Tickets</div>
+          </div>
+          <div class="metric-card">
+            <div class="m-val" id="m-ops" style="color:var(--dtb)">142</div>
+            <div class="m-lbl">Ops / Min</div>
+          </div>
+          <div class="metric-card">
+            <div class="m-val" style="color:var(--cog)">99.8%</div>
+            <div class="m-lbl">Uptime</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PAGE 2: AGENTS -->
+    <div id="page-agents" class="page">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Domain Specialist Workers</div>
+          <div class="page-subtitle">Status & pipeline health</div>
+        </div>
+      </div>
+      <div class="page-content">
+        <div class="grid-2">
+          <div class="panel">
+            <div class="panel-title">Active AI Agents</div>
+            <div class="agent-cards">
+              <div class="ac"><div class="ac-icon" style="background:rgba(0,212,255,.1);color:var(--gia)">GIA</div><div><div class="ac-name">Gateway Interface Agent</div><div class="ac-desc">HTTP entry point</div></div><div class="ac-val" style="color:var(--gia)">14ms</div></div>
+              <div class="ac"><div class="ac-icon" style="background:rgba(191,90,242,.1);color:var(--cog)">COG</div><div><div class="ac-name">Central Orchestration Graph</div><div class="ac-desc">AI state machine</div></div><div class="ac-val" style="color:var(--cog)">2.8s</div></div>
+              <div class="ac"><div class="ac-icon" style="background:rgba(48,209,88,.1);color:var(--dtb)">DTB</div><div><div class="ac-name">Distributed Task Broker</div><div class="ac-desc">Redis Streams</div></div><div class="ac-val" style="color:var(--dtb)">95ms</div></div>
+              <div class="ac"><div class="ac-icon" style="background:rgba(255,214,10,.1);color:var(--tha)">THA</div><div><div class="ac-name">Telemetry & Healing</div><div class="ac-desc">Kafka watchdog</div></div><div class="ac-val" style="color:var(--tha)">7 tkts</div></div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-title">11 DSW Workers</div>
+            <div class="agent-cards">
+              <div class="ac"><div class="ac-icon" style="background:rgba(59,130,246,.1);color:#3b82f6">GEO</div><div><div class="ac-name">Geological Expert</div><div class="ac-desc">HPQ deposits, rare earth</div></div><div class="ac-val" style="color:#3b82f6">ONLINE</div></div>
+              <div class="ac"><div class="ac-icon" style="background:rgba(59,130,246,.1);color:#3b82f6">LOG</div><div><div class="ac-name">Logistics Coordinator</div><div class="ac-desc">Ports, transport routes</div></div><div class="ac-val" style="color:#3b82f6">ONLINE</div></div>
+              <div class="ac"><div class="ac-icon" style="background:rgba(59,130,246,.1);color:#3b82f6">FAB</div><div><div class="ac-name">Fab Locator</div><div class="ac-desc">Semiconductor fabs, OSAT</div></div><div class="ac-val" style="color:#3b82f6">ONLINE</div></div>
+              <div style="text-align:center; padding: 10px; color: var(--dim); font-size: 11px;">+ 8 more specialists running</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PAGE 3: TERMINAL -->
+    <div id="page-terminal" class="page">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Query Terminal</div>
+          <div class="page-subtitle">Submit analysis jobs</div>
+        </div>
+      </div>
+      <div class="page-content" style="max-width: 800px; margin: 0 auto; width: 100%;">
+        <div class="query-box">
+          <textarea id="qinput" placeholder="Enter supply chain query (e.g. Viability report for sourcing HPQ in Southern India)..."></textarea>
+          <div class="presets">
+            <div class="pchip" onclick="setQ(this)">HPQ deposits Tamil Nadu</div>
+            <div class="pchip" onclick="setQ(this)">Copper foil logistics South India</div>
+            <div class="pchip" onclick="setQ(this)">Fab locator Chennai OSAT</div>
+          </div>
+          <button class="btn btn-primary" style="width: 100%; margin-top: 20px;" onclick="runQuery()">DISPATCH TO COG</button>
+        </div>
+
+        <div class="res-box">
+          <div class="res-hdr">
+            <span>Blueprint Result</span>
+            <span style="color:var(--dtb)">SUCCESS</span>
+          </div>
+          <div class="res-body" id="res-body">Waiting for query execution...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PAGE 4: TELEMETRY -->
+    <div id="page-telemetry" class="page">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Telemetry Hub</div>
+          <div class="page-subtitle">Kafka Event Stream</div>
+        </div>
+        <div class="header-actions">
+          <button class="btn btn-danger" onclick="simulateFault()">⚡ Inject Timeout Fault</button>
+        </div>
+      </div>
+      <div class="page-content" style="padding: 20px;">
+        <div class="feed-container">
+          <div class="feed-hdr">
+            <span>Time</span><span>Type</span><span>Event Description</span><span>Source</span>
+          </div>
+          <div class="feed-rows" id="feed-rows">
+            <!-- Populated by JS -->
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- THREE.JS IMPORT MAP -->
+<script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+  }
+</script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

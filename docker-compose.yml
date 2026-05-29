@@ -1,0 +1,178 @@
+version: "3.9"
+
+# GPU Supply Chain MAS — Docker Compose Stack
+# Full infrastructure: Kafka, Redis, Vault, OTel Collector, Prometheus, Grafana
+# Start with: docker-compose up -d
+
+services:
+
+  # ── Apache Kafka + Zookeeper ─────────────────────────────────────────────
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports: ["2181:2181"]
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo ruok | nc localhost 2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    depends_on:
+      zookeeper: {condition: service_healthy}
+    ports: ["9092:9092", "9997:9997"]
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_JMX_PORT: 9997
+      KAFKA_JMX_HOSTNAME: kafka
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.0
+    depends_on:
+      kafka: {condition: service_healthy}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic sys-events --partitions 8 --replication-factor 1 --config retention.ms=86400000
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic agent-faults --partitions 4 --replication-factor 1 --config retention.ms=604800000
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic tha-remediations --partitions 2 --replication-factor 1 --config retention.ms=3600000
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic data-updates --partitions 4 --replication-factor 1
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic audit-trail --partitions 2 --replication-factor 1 --config cleanup.policy=compact
+        echo "Kafka topics created."
+
+  # ── Redis ─────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7.2-alpine
+    ports: ["6379:6379"]
+    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru --appendonly yes
+    volumes: ["redis-data:/data"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.61.0
+    environment:
+      REDIS_ADDR: redis://redis:6379
+    ports: ["9121:9121"]
+    depends_on:
+      redis: {condition: service_healthy}
+
+  # ── HashiCorp Vault (dev mode) ────────────────────────────────────────────
+  vault:
+    image: hashicorp/vault:1.16
+    ports: ["8200:8200"]
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: "dev-root-token"
+      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
+    cap_add: [IPC_LOCK]
+    command: server -dev
+    healthcheck:
+      test: ["CMD", "vault", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── OpenTelemetry Collector ───────────────────────────────────────────────
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.101.0
+    ports:
+      - "4317:4317"    # gRPC OTLP receiver
+      - "4318:4318"    # HTTP OTLP receiver
+      - "8888:8888"    # Prometheus metrics (self)
+      - "8889:8889"    # Prometheus exporter for traces
+    volumes:
+      - ./observability/otel_collector_config.yaml:/etc/otel-collector-config.yaml
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    depends_on: [prometheus]
+
+  # ── Prometheus ────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    ports: ["9090:9090"]
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --web.enable-lifecycle
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  # ── Grafana ───────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.0
+    ports: ["3000:3000"]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: "gpu-chain-admin"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/gpu_supply_chain_main.json
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./observability/dashboards:/var/lib/grafana/dashboards
+      - ./observability/grafana_provisioning:/etc/grafana/provisioning
+    depends_on: [prometheus]
+
+  # ── Kafka Exporter ────────────────────────────────────────────────────────
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:latest
+    ports: ["9308:9308"]
+    command: --kafka.server=kafka:9092 --kafka.version=3.6.1
+    depends_on:
+      kafka: {condition: service_healthy}
+
+volumes:
+  redis-data:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  default:
+    name: gpu-supply-chain-net
+
+  # -- MCP Data Gateway (Unified 11 DSW Tools) ------------------------------
+  mcp-gateway:
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM python:3.11-slim
+        WORKDIR /app
+        COPY requirements.txt .
+        RUN pip install -r requirements.txt
+        COPY . .
+        CMD ["uvicorn", "mcp_servers.gateway:app", "--host", "0.0.0.0", "--port", "80"]
+    ports: ["8001:80"]
+    networks:
+      default:
+        aliases:
+          - geological-mcp-server
+          - logistics-mcp-server
+          - trade-api-fallback
+          - chemical-mcp-server
+          - forecast-mcp-server
+          - fab-mcp-server
+          - legal-mcp-server
+          - env-mcp-server
+          - workforce-mcp-server
+          - trade-mcp-server
+          - thermal-mcp-server
+          - qa-mcp-server

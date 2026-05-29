@@ -1,0 +1,141 @@
+# observability/prometheus.yml
+# =============================================================================
+# Prometheus scrape configuration for the GPU Supply Chain MAS
+#
+# Scrape targets:
+#   - All agent /metrics endpoints (8000-8010 port range)
+#   - Redis exporter
+#   - Kafka exporter
+#   - OpenTelemetry Collector
+# =============================================================================
+
+global:
+  scrape_interval:     15s       # Default scrape frequency
+  evaluation_interval: 15s       # Alert rule evaluation frequency
+  scrape_timeout:      10s
+
+  external_labels:
+    cluster:     "gpu-supply-chain-mas"
+    environment: "production"
+    region:      "india-south"
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+# Alert rule files
+rule_files:
+  - "alerts/agent_sla.yml"
+  - "alerts/mcp_availability.yml"
+  - "alerts/kafka_lag.yml"
+
+# =============================================================================
+# SCRAPE CONFIGURATIONS
+# =============================================================================
+
+scrape_configs:
+
+  # ── GIA (Gateway Interface Agent) ──────────────────────────────────────────
+  - job_name: "gia"
+    static_configs:
+      - targets: ["gia:8000"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label:  agent_role
+        replacement:   "gateway_interface_agent"
+
+  # ── THA (Telemetry & Healing Agent) ─────────────────────────────────────────
+  - job_name: "tha"
+    static_configs:
+      - targets: ["tha:8001"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label:  agent_role
+        replacement:   "telemetry_healing_agent"
+
+  # ── COG (Central Orchestration Graph) ────────────────────────────────────────
+  - job_name: "cog"
+    static_configs:
+      - targets: ["cog:8002"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label:  agent_role
+        replacement:   "central_orchestration_graph"
+
+  # ── DTB (Distributed Task Broker) ────────────────────────────────────────────
+  - job_name: "dtb"
+    static_configs:
+      - targets: ["dtb:8003"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label:  component
+        replacement:   "distributed_task_broker"
+
+  # ── SVB (Secure Vault Broker) ────────────────────────────────────────────────
+  - job_name: "svb"
+    static_configs:
+      - targets: ["svb:8004"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label:  component
+        replacement:   "secure_vault_broker"
+
+  # ── DSW Workers (all specialist workers via service discovery) ────────────────
+  - job_name: "dsw-workers"
+    static_configs:
+      - targets:
+          - "dsw-geological-expert:8010"
+          - "dsw-chemical-infra:8011"
+          - "dsw-supply-chain-forecaster:8012"
+          - "dsw-logistics-coordinator:8013"
+          - "dsw-fab-locator:8014"
+          - "dsw-mining-lease-analyst:8015"
+          - "dsw-environmental-compliance:8016"
+          - "dsw-workforce-analyst:8017"
+          - "dsw-trade-policy-expert:8018"
+          - "dsw-thermal-materials-expert:8019"
+          - "dsw-semiconductor-grade-qa:8020"
+    relabel_configs:
+      - source_labels: [__address__]
+        regex:         "dsw-(.+):\\d+"
+        target_label:  agent_role
+        replacement:   "${1}"
+
+  # ── OpenTelemetry Collector ──────────────────────────────────────────────────
+  - job_name: "otel-collector"
+    static_configs:
+      - targets: ["otel-collector:8888"]
+    metrics_path: "/metrics"
+
+  # ── Redis Exporter ───────────────────────────────────────────────────────────
+  - job_name: "redis"
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label:  component
+        replacement:   "redis-dtb-queue"
+
+  # ── Kafka Exporter (JMX) ─────────────────────────────────────────────────────
+  - job_name: "kafka"
+    static_configs:
+      - targets: ["kafka-exporter:9308"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label:  component
+        replacement:   "kafka-event-bus"
+
+  # ── Vault Metrics ────────────────────────────────────────────────────────────
+  - job_name: "vault"
+    metrics_path: "/v1/sys/metrics"
+    params:
+      format: ["prometheus"]
+    bearer_token_file: "/etc/prometheus/vault_token"
+    static_configs:
+      - targets: ["vault:8200"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label:  component
+        replacement:   "hashicorp-vault-svb"

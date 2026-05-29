@@ -228,14 +228,29 @@ class BaseDSW(ABC):
             )
 
             try:
-                response = httpx.post(
-                    url     = f"http://{self.mcp_server_id}/tools/{tool_name}",
-                    json    = params,
-                    headers = token.as_bearer_header(),
-                    timeout = 30.0,
-                )
-                response.raise_for_status()
-                result = response.json()
+                import asyncio
+                from mcp.client.sse import sse_client
+                from mcp.client.session import ClientSession
+                import mcp.types as types
+
+                async def _call_mcp_tool():
+                    # Route all tools to the new unified modular FastMCP server on port 8001
+                    url = "http://localhost:8001/sse"
+                    headers = token.as_bearer_header()
+                    
+                    async with sse_client(url, headers=headers) as streams:
+                        async with ClientSession(streams[0], streams[1]) as session:
+                            await session.initialize()
+                            response = await session.call_tool(tool_name, arguments=params)
+                            
+                            # Extract text content from the official MCP CallToolResult
+                            if response.content and isinstance(response.content[0], types.TextContent):
+                                return response.content[0].text
+                            return str(response.content)
+
+                # Run the async MCP client synchronously to fit the LangGraph ReAct tool schema
+                text_result = asyncio.run(_call_mcp_tool())
+                result = {"data": text_result, "status": "ok"}
 
                 elapsed_ms = (time.perf_counter() - t_start) * 1000
                 mcp_call.latency_ms = elapsed_ms
@@ -244,21 +259,15 @@ class BaseDSW(ABC):
 
                 return result, mcp_call
 
-            except httpx.TimeoutException as e:
-                elapsed_ms = (time.perf_counter() - t_start) * 1000
-                mcp_call.latency_ms = elapsed_ms
-                mcp_call.success = False
-                mcp_call.error_detail = f"Timeout"
-                tool_span.set_attribute("mcp_status", "timeout")
-                raise TimeoutError(f"MCP timeout: {e}")
-
             except Exception as e:
                 elapsed_ms = (time.perf_counter() - t_start) * 1000
                 mcp_call.latency_ms = elapsed_ms
                 mcp_call.success = False
                 mcp_call.error_detail = str(e)
                 tool_span.set_attribute("mcp_status", "error")
-                raise ConnectionError(f"MCP failed: {e}")
+                
+                # We can't distinguish httpx Timeout easily when wrapped, so just use ConnectionError
+                raise ConnectionError(f"MCP SSE client failed: {e}")
 
     def _publish_fault_event(
         self, job_id: str, task_id: str, session_id: str, trace_id: str, error: Exception, mcp_calls: List[MCPToolCall]

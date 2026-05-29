@@ -1,58 +1,64 @@
 """
 agents/specialists/semiconductor_grade_qa.py
 =========================================
-Semiconductor Grade QA Specialist DSW
+Semiconductor Grade QA Specialist DSW (LangGraph Autonomous Agent)
 
-Domain: Verify material purity compliance (e.g. SEMI F49) and QA.
+Domain: Verify raw material purity compliance (e.g., SEMI F49) and QA ISO certifications.
 MCP Server: qa-mcp-server
 MCP Tools: verify_semi_f49_compliance, get_iso_certifications
 """
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, List
+from pydantic import BaseModel, Field
+
 from orchestration.cog.state_schema import DSWWorkerType, MCPToolCall
 from core_services.svb import EphemeralToken
-from agents.specialists.base_dsw import BaseDSW, DSW_BASE_SYSTEM_PROMPT
+from agents.specialists.base_dsw import BaseDSW
+
+class MCPToolSchema(BaseModel):
+    query: str = Field(description="The specific context or parameters for this tool execution.")
+    region: str = Field(description="The geographic region focus.", default="")
+    material: str = Field(description="The target material focus.", default="")
 
 class SemiconductorGradeQADSW(BaseDSW):
     worker_type    = DSWWorkerType.SEMICONDUCTOR_GRADE_QA
     mcp_server_id  = "qa-mcp-server"
     required_scopes = ['READ_COMPLIANCE', 'READ_ISO']
-    available_tools = ['verify_semi_f49_compliance', 'get_iso_certifications']
 
-    SYSTEM_PROMPT = DSW_BASE_SYSTEM_PROMPT.format(
-        worker_role   = "Semiconductor Grade QA Specialist",
-        mission       = "Verify material purity compliance (e.g. SEMI F49) and QA.",
-        region_focus  = "{region_focus}",
-        material_focus = "{material_focus}",
-        mcp_server_id = "qa-mcp-server",
-        available_tools = "verify_semi_f49_compliance, get_iso_certifications",
-    )
+    def get_system_prompt(self, region_focus: str, material_focus: str) -> str:
+        return f"""You are a highly intelligent Semiconductor Grade QA Specialist specializing in the GPU semiconductor supply chain.
+Your mission: Verify raw material purity compliance (e.g., SEMI F49) and QA ISO certifications.
 
-    def execute_core(
-        self,
-        token:          EphemeralToken,
-        query:          str,
-        region_focus:   str,
-        material_focus: str,
-        span:           Any,
-    ) -> Tuple[Dict[str, Any], List[MCPToolCall], float, List[str]]:
-        
-        mcp_calls = []
-        sources = []
-        result_data = {"summary": f"Semiconductor Grade QA Specialist assessment completed for {material_focus} in {region_focus}."}
-        
-        for tool in self.available_tools:
-            span.add_event(f"Calling {tool}")
-            res, call = self.call_mcp_tool(
-                tool_name=tool,
-                params={"region": region_focus, "material": material_focus, "query": query},
-                token=token,
-                span=span
-            )
-            mcp_calls.append(call)
-            sources.append(f"{tool} API")
-            result_data[tool] = res.get("data", "No data")
+Focus Area:
+- Region: {region_focus}
+- Material: {material_focus}
 
-        confidence = 0.85
-        span.set_attribute("confidence", confidence)
-        return result_data, mcp_calls, confidence, sources
+You have access to a set of specialized tools that connect to the `qa-mcp-server`.
+You must use these tools to gather real-world data, analyze the results, and formulate a comprehensive answer.
+
+Guidelines:
+1. Always utilize your tools to verify data before answering. Do not hallucinate.
+2. If a tool times out or fails, note it in your summary and try to proceed with partial data if possible.
+3. Be specific and quantitative in your final response.
+"""
+
+    def get_dynamic_tools(self, token: EphemeralToken, span: Any, mcp_calls: List[MCPToolCall]) -> List[Any]:
+        tools = []
+        tools.append(self.create_mcp_tool(
+            tool_name="verify_semi_f49_compliance",
+            description="Execute the verify_semi_f49_compliance capability on the qa-mcp-server.",
+            params_schema=MCPToolSchema,
+            token=token,
+            span=span,
+            mcp_calls=mcp_calls
+        ))
+        tools.append(self.create_mcp_tool(
+            tool_name="get_iso_certifications",
+            description="Execute the get_iso_certifications capability on the qa-mcp-server.",
+            params_schema=MCPToolSchema,
+            token=token,
+            span=span,
+            mcp_calls=mcp_calls
+        ))
+
+        return tools

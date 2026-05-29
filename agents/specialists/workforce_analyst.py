@@ -1,58 +1,64 @@
 """
 agents/specialists/workforce_analyst.py
 =========================================
-Workforce & Labor Analyst DSW
+Workforce & Labor Analyst DSW (LangGraph Autonomous Agent)
 
-Domain: Analyze skilled labor availability and workforce costs.
+Domain: Analyze skilled labor availability and workforce costs in target geographic regions.
 MCP Server: workforce-mcp-server
 MCP Tools: query_university_graduates, get_labor_costs
 """
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, List
+from pydantic import BaseModel, Field
+
 from orchestration.cog.state_schema import DSWWorkerType, MCPToolCall
 from core_services.svb import EphemeralToken
-from agents.specialists.base_dsw import BaseDSW, DSW_BASE_SYSTEM_PROMPT
+from agents.specialists.base_dsw import BaseDSW
+
+class MCPToolSchema(BaseModel):
+    query: str = Field(description="The specific context or parameters for this tool execution.")
+    region: str = Field(description="The geographic region focus.", default="")
+    material: str = Field(description="The target material focus.", default="")
 
 class WorkforceAnalystDSW(BaseDSW):
     worker_type    = DSWWorkerType.WORKFORCE_ANALYST
     mcp_server_id  = "workforce-mcp-server"
     required_scopes = ['READ_GRADUATES', 'READ_LABOR_COSTS']
-    available_tools = ['query_university_graduates', 'get_labor_costs']
 
-    SYSTEM_PROMPT = DSW_BASE_SYSTEM_PROMPT.format(
-        worker_role   = "Workforce & Labor Analyst",
-        mission       = "Analyze skilled labor availability and workforce costs.",
-        region_focus  = "{region_focus}",
-        material_focus = "{material_focus}",
-        mcp_server_id = "workforce-mcp-server",
-        available_tools = "query_university_graduates, get_labor_costs",
-    )
+    def get_system_prompt(self, region_focus: str, material_focus: str) -> str:
+        return f"""You are a highly intelligent Workforce & Labor Analyst specializing in the GPU semiconductor supply chain.
+Your mission: Analyze skilled labor availability and workforce costs in target geographic regions.
 
-    def execute_core(
-        self,
-        token:          EphemeralToken,
-        query:          str,
-        region_focus:   str,
-        material_focus: str,
-        span:           Any,
-    ) -> Tuple[Dict[str, Any], List[MCPToolCall], float, List[str]]:
-        
-        mcp_calls = []
-        sources = []
-        result_data = {"summary": f"Workforce & Labor Analyst assessment completed for {material_focus} in {region_focus}."}
-        
-        for tool in self.available_tools:
-            span.add_event(f"Calling {tool}")
-            res, call = self.call_mcp_tool(
-                tool_name=tool,
-                params={"region": region_focus, "material": material_focus, "query": query},
-                token=token,
-                span=span
-            )
-            mcp_calls.append(call)
-            sources.append(f"{tool} API")
-            result_data[tool] = res.get("data", "No data")
+Focus Area:
+- Region: {region_focus}
+- Material: {material_focus}
 
-        confidence = 0.85
-        span.set_attribute("confidence", confidence)
-        return result_data, mcp_calls, confidence, sources
+You have access to a set of specialized tools that connect to the `workforce-mcp-server`.
+You must use these tools to gather real-world data, analyze the results, and formulate a comprehensive answer.
+
+Guidelines:
+1. Always utilize your tools to verify data before answering. Do not hallucinate.
+2. If a tool times out or fails, note it in your summary and try to proceed with partial data if possible.
+3. Be specific and quantitative in your final response.
+"""
+
+    def get_dynamic_tools(self, token: EphemeralToken, span: Any, mcp_calls: List[MCPToolCall]) -> List[Any]:
+        tools = []
+        tools.append(self.create_mcp_tool(
+            tool_name="query_university_graduates",
+            description="Execute the query_university_graduates capability on the workforce-mcp-server.",
+            params_schema=MCPToolSchema,
+            token=token,
+            span=span,
+            mcp_calls=mcp_calls
+        ))
+        tools.append(self.create_mcp_tool(
+            tool_name="get_labor_costs",
+            description="Execute the get_labor_costs capability on the workforce-mcp-server.",
+            params_schema=MCPToolSchema,
+            token=token,
+            span=span,
+            mcp_calls=mcp_calls
+        ))
+
+        return tools

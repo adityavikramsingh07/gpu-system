@@ -1,58 +1,64 @@
 """
 agents/specialists/supply_chain_forecaster.py
 =========================================
-Supply Chain Forecaster DSW
+Supply Chain Forecaster DSW (LangGraph Autonomous Agent)
 
-Domain: Forecast supply chain bottlenecks and demand projections.
+Domain: Forecast supply chain bottlenecks and project future raw material demands.
 MCP Server: forecast-mcp-server
 MCP Tools: run_monte_carlo_supply_sim, get_demand_projection
 """
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, List
+from pydantic import BaseModel, Field
+
 from orchestration.cog.state_schema import DSWWorkerType, MCPToolCall
 from core_services.svb import EphemeralToken
-from agents.specialists.base_dsw import BaseDSW, DSW_BASE_SYSTEM_PROMPT
+from agents.specialists.base_dsw import BaseDSW
+
+class MCPToolSchema(BaseModel):
+    query: str = Field(description="The specific context or parameters for this tool execution.")
+    region: str = Field(description="The geographic region focus.", default="")
+    material: str = Field(description="The target material focus.", default="")
 
 class SupplyChainForecasterDSW(BaseDSW):
     worker_type    = DSWWorkerType.SUPPLY_CHAIN_FORECASTER
     mcp_server_id  = "forecast-mcp-server"
     required_scopes = ['RUN_SIMULATION', 'READ_DEMAND']
-    available_tools = ['run_monte_carlo_supply_sim', 'get_demand_projection']
 
-    SYSTEM_PROMPT = DSW_BASE_SYSTEM_PROMPT.format(
-        worker_role   = "Supply Chain Forecaster",
-        mission       = "Forecast supply chain bottlenecks and demand projections.",
-        region_focus  = "{region_focus}",
-        material_focus = "{material_focus}",
-        mcp_server_id = "forecast-mcp-server",
-        available_tools = "run_monte_carlo_supply_sim, get_demand_projection",
-    )
+    def get_system_prompt(self, region_focus: str, material_focus: str) -> str:
+        return f"""You are a highly intelligent Supply Chain Forecaster specializing in the GPU semiconductor supply chain.
+Your mission: Forecast supply chain bottlenecks and project future raw material demands.
 
-    def execute_core(
-        self,
-        token:          EphemeralToken,
-        query:          str,
-        region_focus:   str,
-        material_focus: str,
-        span:           Any,
-    ) -> Tuple[Dict[str, Any], List[MCPToolCall], float, List[str]]:
-        
-        mcp_calls = []
-        sources = []
-        result_data = {"summary": f"Supply Chain Forecaster assessment completed for {material_focus} in {region_focus}."}
-        
-        for tool in self.available_tools:
-            span.add_event(f"Calling {tool}")
-            res, call = self.call_mcp_tool(
-                tool_name=tool,
-                params={"region": region_focus, "material": material_focus, "query": query},
-                token=token,
-                span=span
-            )
-            mcp_calls.append(call)
-            sources.append(f"{tool} API")
-            result_data[tool] = res.get("data", "No data")
+Focus Area:
+- Region: {region_focus}
+- Material: {material_focus}
 
-        confidence = 0.85
-        span.set_attribute("confidence", confidence)
-        return result_data, mcp_calls, confidence, sources
+You have access to a set of specialized tools that connect to the `forecast-mcp-server`.
+You must use these tools to gather real-world data, analyze the results, and formulate a comprehensive answer.
+
+Guidelines:
+1. Always utilize your tools to verify data before answering. Do not hallucinate.
+2. If a tool times out or fails, note it in your summary and try to proceed with partial data if possible.
+3. Be specific and quantitative in your final response.
+"""
+
+    def get_dynamic_tools(self, token: EphemeralToken, span: Any, mcp_calls: List[MCPToolCall]) -> List[Any]:
+        tools = []
+        tools.append(self.create_mcp_tool(
+            tool_name="run_monte_carlo_supply_sim",
+            description="Execute the run_monte_carlo_supply_sim capability on the forecast-mcp-server.",
+            params_schema=MCPToolSchema,
+            token=token,
+            span=span,
+            mcp_calls=mcp_calls
+        ))
+        tools.append(self.create_mcp_tool(
+            tool_name="get_demand_projection",
+            description="Execute the get_demand_projection capability on the forecast-mcp-server.",
+            params_schema=MCPToolSchema,
+            token=token,
+            span=span,
+            mcp_calls=mcp_calls
+        ))
+
+        return tools

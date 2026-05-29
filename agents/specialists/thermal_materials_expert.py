@@ -1,58 +1,64 @@
 """
 agents/specialists/thermal_materials_expert.py
 =========================================
-Thermal Materials Expert DSW
+Thermal Materials Expert DSW (LangGraph Autonomous Agent)
 
-Domain: Source Thermal Interface Materials (TIM) and substrates.
+Domain: Source Thermal Interface Materials (TIM) and evaluate advanced substrate pricing.
 MCP Server: thermal-mcp-server
 MCP Tools: query_tim_suppliers, get_substrate_pricing
 """
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, List
+from pydantic import BaseModel, Field
+
 from orchestration.cog.state_schema import DSWWorkerType, MCPToolCall
 from core_services.svb import EphemeralToken
-from agents.specialists.base_dsw import BaseDSW, DSW_BASE_SYSTEM_PROMPT
+from agents.specialists.base_dsw import BaseDSW
+
+class MCPToolSchema(BaseModel):
+    query: str = Field(description="The specific context or parameters for this tool execution.")
+    region: str = Field(description="The geographic region focus.", default="")
+    material: str = Field(description="The target material focus.", default="")
 
 class ThermalMaterialsExpertDSW(BaseDSW):
     worker_type    = DSWWorkerType.THERMAL_MATERIALS_EXPERT
     mcp_server_id  = "thermal-mcp-server"
     required_scopes = ['READ_TIM', 'READ_PRICING']
-    available_tools = ['query_tim_suppliers', 'get_substrate_pricing']
 
-    SYSTEM_PROMPT = DSW_BASE_SYSTEM_PROMPT.format(
-        worker_role   = "Thermal Materials Expert",
-        mission       = "Source Thermal Interface Materials (TIM) and substrates.",
-        region_focus  = "{region_focus}",
-        material_focus = "{material_focus}",
-        mcp_server_id = "thermal-mcp-server",
-        available_tools = "query_tim_suppliers, get_substrate_pricing",
-    )
+    def get_system_prompt(self, region_focus: str, material_focus: str) -> str:
+        return f"""You are a highly intelligent Thermal Materials Expert specializing in the GPU semiconductor supply chain.
+Your mission: Source Thermal Interface Materials (TIM) and evaluate advanced substrate pricing.
 
-    def execute_core(
-        self,
-        token:          EphemeralToken,
-        query:          str,
-        region_focus:   str,
-        material_focus: str,
-        span:           Any,
-    ) -> Tuple[Dict[str, Any], List[MCPToolCall], float, List[str]]:
-        
-        mcp_calls = []
-        sources = []
-        result_data = {"summary": f"Thermal Materials Expert assessment completed for {material_focus} in {region_focus}."}
-        
-        for tool in self.available_tools:
-            span.add_event(f"Calling {tool}")
-            res, call = self.call_mcp_tool(
-                tool_name=tool,
-                params={"region": region_focus, "material": material_focus, "query": query},
-                token=token,
-                span=span
-            )
-            mcp_calls.append(call)
-            sources.append(f"{tool} API")
-            result_data[tool] = res.get("data", "No data")
+Focus Area:
+- Region: {region_focus}
+- Material: {material_focus}
 
-        confidence = 0.85
-        span.set_attribute("confidence", confidence)
-        return result_data, mcp_calls, confidence, sources
+You have access to a set of specialized tools that connect to the `thermal-mcp-server`.
+You must use these tools to gather real-world data, analyze the results, and formulate a comprehensive answer.
+
+Guidelines:
+1. Always utilize your tools to verify data before answering. Do not hallucinate.
+2. If a tool times out or fails, note it in your summary and try to proceed with partial data if possible.
+3. Be specific and quantitative in your final response.
+"""
+
+    def get_dynamic_tools(self, token: EphemeralToken, span: Any, mcp_calls: List[MCPToolCall]) -> List[Any]:
+        tools = []
+        tools.append(self.create_mcp_tool(
+            tool_name="query_tim_suppliers",
+            description="Execute the query_tim_suppliers capability on the thermal-mcp-server.",
+            params_schema=MCPToolSchema,
+            token=token,
+            span=span,
+            mcp_calls=mcp_calls
+        ))
+        tools.append(self.create_mcp_tool(
+            tool_name="get_substrate_pricing",
+            description="Execute the get_substrate_pricing capability on the thermal-mcp-server.",
+            params_schema=MCPToolSchema,
+            token=token,
+            span=span,
+            mcp_calls=mcp_calls
+        ))
+
+        return tools
